@@ -588,9 +588,11 @@ All public pages apply a **visibility filter**: only comics and chapters where `
 
 ### 8.1 Home Page (`/`)
 
-- **Hero section**: App branding and tagline.
-- **Recently Updated**: Grid of comics that have new published chapters, showing the comic cover, localized name, and latest chapter number/name. Ordered by most recent chapter `publishedAt` (not `createdAt`).
-- **Popular**: Grid of top published comics by `viewCount`.
+- **Popular carousel** (full viewport width, no header): Multi-slide auto-rotating carousel of top published comics by `viewCount`. Each slide is a **square (1:1)** card with the cover image as background, a dark gradient overlay, and the title/tags/latest chapter overlaid. Auto-rotates every 5 seconds, pauses on hover, loops infinitely when 2+ items. Responsive: 2 visible on mobile, 3-4 on tablet, 5-6 on desktop/ultrawide. Hidden when no popular comics exist.
+- **Recently Updated**: Responsive grid of comics with new published chapters, showing comic card (cover, localized name, tags, latest chapter). Ordered by most recent chapter `publishedAt`. Hidden when empty.
+- **Ongoing**: Responsive grid of published comics with status "ongoing", sorted by recently updated. Hidden when empty.
+- **Completed**: Responsive grid of published comics with status "completed", sorted by recently updated. Hidden when empty.
+- Grid sections use `max-w-7xl` container (consistent with the navbar) with responsive columns (2-6).
 - Each comic card links to the Comic Detail page.
 
 ### 8.2 Browse Page (`/browse`)
@@ -683,11 +685,11 @@ Segments within a column are **always contiguous in chapter order** — the algo
 | Scroll by one column | Left/Right Arrow keys (smooth scroll to next/previous column edge, including the end-of-chapter box) |
 | Free-form horizontal scroll | Mouse wheel, trackpad, horizontal scroll gesture |
 
-**Arrow key column-step scrolling**: Each Left/Right Arrow key press scrolls the board by exactly one column (smooth animation via `scrollTo`). Pre-computed column edge positions (`columnEdges` array) serve as snap targets, including an extra entry for the end-of-chapter box. The next/previous edge relative to the current `scrollLeft` is found with a 1px tolerance to handle floating-point column widths. Arrow keys are purely scroll-only — they do **not** navigate between chapters. At the scroll boundaries they simply stop.
+**Arrow key column-step scrolling**: Each Left/Right Arrow key press scrolls the board by exactly one column (smooth animation via `scrollTo`). Pre-computed column edge positions (`columnEdges` array) serve as snap targets for content columns only (the end-of-chapter box is not a snap target). The next/previous edge relative to the current `scrollLeft` is found with a 1px tolerance to handle floating-point column widths. Arrow keys are purely scroll-only — they do **not** navigate between chapters. At the scroll boundaries they simply stop.
 
-**End-of-chapter box**: A 300px-wide full-height box always renders after the last column. When a next chapter exists, it shows a clickable "Next Chapter" link with the chapter number and name. When this is the latest chapter, it shows a non-clickable "You're all caught up!" indicator. The box is included in `columnEdges` as a snap target so ArrowRight can scroll it into view.
+**End-of-chapter box**: A 300px-wide full-height box always renders after the last column. When a next chapter exists, it shows a clickable "Next Chapter" link with the chapter number and name. When this is the latest chapter, it shows a non-clickable "You're all caught up!" indicator. The box is not a `columnEdges` snap target — it is reachable via natural scrolling (wheel, trackpad) past the last content column. Since the box is never blurred (per-column blur only applies to content columns), it is always readable once visible.
 
-**Trailing spacer**: A trailing spacer is always appended after the end-of-chapter box to ensure the box is fully visible and reachable by ArrowRight. Its width is computed as `boardWidth - centerPadding - boxWidth - N*gap`, where N is 2 when center-start is active (leading spacer adds an extra flex gap) or 1 otherwise — the exact minimum for the box's column edge to be reachable by `maxScroll`.
+**Trailing spacer**: A trailing spacer is always appended after the end-of-chapter box to ensure the last content column's `columnEdge` is reachable by ArrowRight. Its width is computed as `boardWidth - centerPadding - firstColWidth - boxWidth - N*gap`, where N is 3 when center-start is active or 2 otherwise — the exact minimum for the last column's edge to be reachable by `maxScroll`.
 
 **Mouse wheel handling**: Since the reader scrolls horizontally but mouse wheels produce vertical `deltaY` events, the board must intercept `wheel` events and convert vertical scroll to horizontal: `boardRef.scrollLeft += event.deltaY`. Without this, standard mouse users cannot scroll the reader.
 
@@ -778,7 +780,7 @@ The reader provides inline settings controls in the expanded desktop sidebar as 
 
 **Access**: Desktop sidebar only. Mobile users get whatever was configured on desktop via localStorage.
 
-**Settings (9 total):**
+**Settings (8 total):**
 
 | Setting | Default | Description |
 |---|---|---|
@@ -788,13 +790,10 @@ The reader provides inline settings controls in the expanded desktop sidebar as 
 | Column gap color | #000000 | Background color between columns (desktop only) |
 | Min column width | 300px | Hard floor — columns are never narrower |
 | Viewport width ratio | 0.1 | Min column width as fraction of screen (for ultrawides) |
-| Start from center | on | First column's right edge aligns with viewport center |
-| Blur right half | on | Blur upcoming columns to prevent spoilers (requires start-from-center) |
-| Blur intensity | 8px | Strength of the anti-spoiler blur |
+| Start from center | on | First column centered on screen, upcoming columns blurred |
+| Blur intensity | 8px | Strength of the anti-spoiler blur (visible when start-from-center is on) |
 
-**Center-start mode**: When enabled, an invisible spacer aligns the first column's right edge with the viewport center, showing exactly one column of content. Users scroll right to reveal subsequent columns naturally.
-
-**Anti-spoiler blur**: When enabled alongside center-start, a `backdrop-filter: blur()` overlay covers everything from the viewport center rightward (which is exactly where the first column ends). The overlay uses `pointer-events: none` so users can still scroll and interact through it. The blur toggle is disabled when center-start is off.
+**Center-start mode with anti-spoiler blur**: When enabled, an invisible spacer aligns the first column's right edge with the viewport center, showing exactly one column of content. Unrevealed columns beyond the first are automatically blurred using per-column `filter: blur()`. As the user scrolls and a column's left edge crosses the board center, that column permanently unblurs with a 0.3s fade-in animation. Once a column is revealed, it **never re-blurs** — even if the user scrolls backward. This one-way reveal model is both simpler and more performant than the alternative of tracking scroll direction, and matches user intent (if you scrolled there, you already saw it). The blur intensity slider is only visible when start-from-center is on. The watermark (highest revealed segment `sortOrder`) survives column recomputation from resize or settings changes.
 
 **Keyboard**: Arrow keys are disabled when focus is on settings sliders or switches.
 
@@ -1070,7 +1069,7 @@ The public shell (navbar + footer) is rendered in `__root.tsx` using the `static
 **Top navbar** (sticky at top of viewport):
 
 - Left: app logo/name (links to home).
-- Center: navigation links -- Home, Browse.
+- Center: search bar (`max-w-md`, flexes to fill available space). Submitting navigates to `/browse?q=<query>&page=1`; empty submit navigates to `/browse?page=1` (replaces the old Browse nav link). **Hidden on the browse page** (which has its own inline debounced search bar) — an empty flex spacer preserves layout spacing.
 - Right: theme toggle, auth state. The navbar uses the `useAuth()` hook to get user data (no root-level `beforeLoad` prefetch needed). Anonymous users see a "Sign In" button. Logged-in users see a user avatar with a dropdown menu (Dashboard, Admin if admin, Sign Out).
 
 **Footer** (at bottom of page content, not fixed):
@@ -1108,9 +1107,8 @@ Used on: comic detail page chapter list.
 
 #### Home Page (`/`)
 
-- **Hero section**: full-width, dark gradient background. App name and tagline centered. Optionally a featured comic banner image behind the text.
-- **"Recently Updated" section**: section header ("Recently Updated") with a "View all" link (navigates to browse page sorted by recently updated). Below: horizontal scrollable row of comic cards, or a responsive grid showing 1-2 rows.
-- **"Popular" section**: same layout pattern as Recently Updated, with a "View all" link to the browse page sorted by popular.
+- **Popular carousel** (top, full viewport width, no header): Multi-slide Embla carousel with square (1:1) comic cards. Each card has the cover image as background with a dark gradient overlay and title/tags/chapter info overlaid. Auto-rotates (5s, `embla-carousel-autoplay`), pauses on hover, loops infinitely when 2+ items. Responsive slide count: `basis-1/2` mobile, `basis-1/3` tablet, `basis-1/4` to `basis-1/6` desktop/ultrawide. Navigation arrows appear on hover. Hidden if 0 comics; no arrows/autoplay if only 1.
+- **Content grids** (contained in `max-w-7xl mx-auto px-4`, consistent with navbar): Three sections in order — "Recently Updated", "Ongoing", "Completed". Each section has a heading with "View all →" link (to browse with appropriate status filter) and a responsive `ComicCard` grid (`grid-cols-2` through `xl:grid-cols-6`). Sections are hidden when empty.
 - Footer at the bottom.
 
 #### Browse Page (`/browse`)
@@ -1229,7 +1227,7 @@ Every page that fetches data should show placeholder skeletons matching the shap
 
 | Page | Loading State |
 |------|--------------|
-| Home page | Skeleton comic card grid (6-8 cards) in each section |
+| Home page | Carousel skeleton (full-width row of square shimmer cards) + three section skeletons (7 comic card placeholders each) |
 | Browse page | Skeleton cards in the results grid; filters render immediately |
 | Comic detail | Skeleton cover rectangle + text lines for metadata; skeleton rows for chapter list |
 | Chapter reader | Dark board area with a centered spinner (segments load lazily after metadata) |
@@ -1267,6 +1265,7 @@ Use these specific shadcn/ui components for common patterns. Install via `pnpm u
 | Mobile filter drawer (browse page) | `Sheet` |
 | File upload dropzone | Custom component using native drag-and-drop API + Tailwind styling |
 | Image with error fallback | Custom `ImageWithFallback` component (handles `onError`, shows styled fallback) |
+| Home page carousel | `Carousel` (shadcn, Embla-based) + `embla-carousel-autoplay` plugin |
 
 ### 16.10 Toast Notifications
 
